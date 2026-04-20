@@ -65,10 +65,14 @@ def get_overdue_opportunities(threshold):
                     status_text = val.get("text") if val else None
                 elif f["id"] == LAST_CONTACT_FIELD_ID:
                     interaction = (f.get("value") or {}).get("data")
-                    if interaction and interaction.get("sentAt"):
-                        last_contact_date = datetime.fromisoformat(
-                            interaction["sentAt"].replace("Z", "+00:00")
-                        )
+                    if interaction:
+                        # emails have sentAt, meetings have startTime,
+                        # chat messages also have sentAt
+                        raw = interaction.get("sentAt") or interaction.get("startTime")
+                        if raw:
+                            last_contact_date = datetime.fromisoformat(
+                                raw.replace("Z", "+00:00")
+                            )
 
             if status_text not in TARGET_STATUSES:
                 continue
