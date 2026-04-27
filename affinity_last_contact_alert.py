@@ -30,7 +30,7 @@ LIST_ID = 223179
 STATUS_FIELD_ID = "field-4152109"
 LAST_CONTACT_FIELD_ID = "last-contact"
 TARGET_STATUSES = {"Blurb / Teaser sent", "Pitch / Case Study sent", "Dataroom"}
-MILESTONE_DAYS = (10, 20, 30)
+MILESTONE_DAYS = (15,)
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 SMTP_HOST = "smtp.gmail.com"
@@ -99,7 +99,7 @@ def get_milestone_opportunities(today_berlin):
 def build_email_body(alerts):
     rows = ""
     for a in sorted(alerts, key=lambda x: (-x["days_since"], x["name"])):
-        color = {10: "#d68a00", 20: "#cc4400", 30: "#b00020"}[a["days_since"]]
+        color = "#cc4400"
         rows += (
             f"<tr>"
             f"<td style='padding:6px 12px;border:1px solid #ddd'>{a['name']}</td>"
@@ -113,8 +113,8 @@ def build_email_body(alerts):
 
     return f"""\
 <html><body>
-<p>The following <strong>{len(alerts)}</strong> opportunities have hit a
-contact milestone today (10, 20, or 30 days since last contact):</p>
+<p>The following <strong>{len(alerts)}</strong> opportunities reached
+<strong>15 days without contact</strong> today:</p>
 <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px'>
 <tr style='background:#f4f4f4'>
   <th style='padding:8px 12px;border:1px solid #ddd;text-align:left'>Opportunity</th>
@@ -160,13 +160,11 @@ def main():
     print(f"  {len(alerts)} opportunities hit a milestone today.")
 
     if alerts:
-        counts = {d: sum(1 for a in alerts if a["days_since"] == d) for d in MILESTONE_DAYS}
-        parts = [f"{counts[d]}@{d}d" for d in MILESTONE_DAYS if counts[d]]
-        subject = f"⚠ LP contact milestones: {', '.join(parts)}"
+        subject = f"⚠ {len(alerts)} LP opportunit{'y' if len(alerts) == 1 else 'ies'} at 15 days without contact"
         send_email(subject, build_email_body(alerts))
         print(f"  Email sent to {EMAIL_TO}.")
     else:
-        print("  No milestones today. No email sent.")
+        print("  No opportunities at the 15-day mark today. No email sent.")
 
 
 if __name__ == "__main__":
