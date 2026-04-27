@@ -1,9 +1,11 @@
 """
-Affinity "Last Contact" Alert Script
-=====================================
-Checks the "LP Fundraising Opportunities" list in Affinity for opportunities
-where Status is "Blurb / Teaser sent", "Pitch / Case Study sent", or "Dataroom"
-AND the "Last Contact" date is 10+ days ago. Sends an email summary.
+Affinity "Last Contact" Milestone Alert
+========================================
+Checks the "LP Fundraising Opportunities" list in Affinity. For opportunities
+with Status "Blurb / Teaser sent", "Pitch / Case Study sent", or "Dataroom",
+sends one daily email listing those whose Last Contact date is exactly
+10, 20, or 30 days ago (in Europe/Berlin). If no opportunity hits a
+milestone today, no email is sent.
 
 Secrets are read from environment variables (set as GitHub Actions secrets).
 """
@@ -12,9 +14,8 @@ import json
 import os
 import smtplib
 import ssl
-import sys
 import urllib.request
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from zoneinfo import ZoneInfo
@@ -29,8 +30,9 @@ LIST_ID = 223179
 STATUS_FIELD_ID = "field-4152109"
 LAST_CONTACT_FIELD_ID = "last-contact"
 TARGET_STATUSES = {"Blurb / Teaser sent", "Pitch / Case Study sent", "Dataroom"}
-DAYS_THRESHOLD = 10
+MILESTONE_DAYS = (10, 20, 30)
 
+BERLIN_TZ = ZoneInfo("Europe/Berlin")
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 V2_BASE = "https://api.affinity.co/v2"
@@ -44,14 +46,15 @@ def affinity_v2_get(url):
         return json.loads(resp.read().decode())
 
 
-def get_overdue_opportunities(threshold):
+def get_milestone_opportunities(today_berlin):
+    """Return opportunities whose last contact was exactly 10, 20, or 30
+    calendar days ago in Berlin time."""
     alerts = []
     url = (
         f"{V2_BASE}/lists/{LIST_ID}/list-entries"
         f"?fieldIds={STATUS_FIELD_ID}&fieldIds={LAST_CONTACT_FIELD_ID}&limit=100"
     )
 
-    total_matching = 0
     while url:
         data = affinity_v2_get(url)
         for entry in data.get("data", []):
@@ -66,46 +69,37 @@ def get_overdue_opportunities(threshold):
                 elif f["id"] == LAST_CONTACT_FIELD_ID:
                     interaction = (f.get("value") or {}).get("data")
                     if interaction:
-                        # emails have sentAt, meetings have startTime,
-                        # chat messages also have sentAt
+                        # emails/chats have sentAt, meetings have startTime
                         raw = interaction.get("sentAt") or interaction.get("startTime")
                         if raw:
                             last_contact_date = datetime.fromisoformat(
                                 raw.replace("Z", "+00:00")
                             )
 
-            if status_text not in TARGET_STATUSES:
+            if status_text not in TARGET_STATUSES or last_contact_date is None:
                 continue
 
-            total_matching += 1
-            name = entry["entity"]["name"]
+            last_berlin_date = last_contact_date.astimezone(BERLIN_TZ).date()
+            days_since = (today_berlin - last_berlin_date).days
 
-            if last_contact_date is None:
+            if days_since in MILESTONE_DAYS:
                 alerts.append({
-                    "name": name,
+                    "name": entry["entity"]["name"],
                     "status": status_text,
-                    "last_contact": "No record",
-                    "days_since": 999,
-                })
-            elif last_contact_date < threshold:
-                days_since = (datetime.now(timezone.utc) - last_contact_date).days
-                alerts.append({
-                    "name": name,
-                    "status": status_text,
-                    "last_contact": last_contact_date.strftime("%Y-%m-%d"),
+                    "last_contact": last_berlin_date.isoformat(),
                     "days_since": days_since,
                 })
 
         url = data.get("pagination", {}).get("nextUrl")
 
-    return alerts, total_matching
+    return alerts
 
 
 # ── Email ──────────────────────────────────────────────────────────────────────
 def build_email_body(alerts):
     rows = ""
-    for a in sorted(alerts, key=lambda x: x["days_since"], reverse=True):
-        color = "red" if a["days_since"] >= 20 else "orange"
+    for a in sorted(alerts, key=lambda x: (-x["days_since"], x["name"])):
+        color = {10: "#d68a00", 20: "#cc4400", 30: "#b00020"}[a["days_since"]]
         rows += (
             f"<tr>"
             f"<td style='padding:6px 12px;border:1px solid #ddd'>{a['name']}</td>"
@@ -119,8 +113,8 @@ def build_email_body(alerts):
 
     return f"""\
 <html><body>
-<p>The following <strong>{len(alerts)}</strong> opportunities have not been contacted
-in <strong>{DAYS_THRESHOLD}+ days</strong> and are in an active status:</p>
+<p>The following <strong>{len(alerts)}</strong> opportunities have hit a
+contact milestone today (10, 20, or 30 days since last contact):</p>
 <table style='border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px'>
 <tr style='background:#f4f4f4'>
   <th style='padding:8px 12px;border:1px solid #ddd;text-align:left'>Opportunity</th>
@@ -153,26 +147,26 @@ def send_email(subject, html_body):
 def main():
     # Only run if we're in the 09:xx hour in Berlin (skip the off-DST duplicate run).
     # Bypass this guard by setting ALWAYS_RUN=1 (e.g. for manual workflow_dispatch).
-    berlin_now = datetime.now(ZoneInfo("Europe/Berlin"))
+    berlin_now = datetime.now(BERLIN_TZ)
     if berlin_now.hour != 9 and os.environ.get("ALWAYS_RUN") != "1":
         print(f"Berlin time is {berlin_now:%H:%M} — not 09:xx, skipping.")
         return
 
-    now = datetime.now(timezone.utc)
-    threshold = now - timedelta(days=DAYS_THRESHOLD)
+    today_berlin = berlin_now.date()
+    print(f"[{datetime.now(timezone.utc).isoformat()}] "
+          f"Checking milestones for {today_berlin}...")
 
-    print(f"[{now.isoformat()}] Fetching opportunities...")
-    alerts, total_matching = get_overdue_opportunities(threshold)
-    print(f"  {total_matching} opportunities match target statuses.")
-    print(f"  {len(alerts)} are overdue ({DAYS_THRESHOLD}+ days without contact).")
+    alerts = get_milestone_opportunities(today_berlin)
+    print(f"  {len(alerts)} opportunities hit a milestone today.")
 
     if alerts:
-        subject = f"⚠ {len(alerts)} LP opportunities overdue for contact"
-        html_body = build_email_body(alerts)
-        send_email(subject, html_body)
+        counts = {d: sum(1 for a in alerts if a["days_since"] == d) for d in MILESTONE_DAYS}
+        parts = [f"{counts[d]}@{d}d" for d in MILESTONE_DAYS if counts[d]]
+        subject = f"⚠ LP contact milestones: {', '.join(parts)}"
+        send_email(subject, build_email_body(alerts))
         print(f"  Email sent to {EMAIL_TO}.")
     else:
-        print("  No overdue opportunities. No email sent.")
+        print("  No milestones today. No email sent.")
 
 
 if __name__ == "__main__":
