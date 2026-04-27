@@ -1,0 +1,37 @@
+name: Daily Affinity Last Contact Alert
+
+on:
+  schedule:
+    # Scheduled twice daily in UTC to cover both Berlin DST periods:
+    #   07:15 UTC = 09:15 Berlin during CEST (summer)
+    #   08:15 UTC = 09:15 Berlin during CET  (winter)
+    # The script itself exits early when Berlin local time is not 09:xx,
+    # so only one of these actually sends an email on any given day.
+    # :15 (not :00) reduces GitHub Actions cron delay during peak load.
+    - cron: "15 7 * * *"
+    - cron: "15 8 * * *"
+  workflow_dispatch:      # allows manual run from the GitHub UI
+
+jobs:
+  run-alert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run alert script
+        env:
+          TZ: Europe/Berlin
+          AFFINITY_API_KEY: ${{ secrets.AFFINITY_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python affinity_last_contact_alert.py
