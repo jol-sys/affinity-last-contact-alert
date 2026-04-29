@@ -145,14 +145,7 @@ def send_email(subject, html_body):
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 def main():
-    # Only run if we're in the 09:xx hour in Berlin (skip the off-DST duplicate run).
-    # Bypass this guard by setting ALWAYS_RUN=1 (e.g. for manual workflow_dispatch).
-    berlin_now = datetime.now(BERLIN_TZ)
-    if berlin_now.hour != 9 and os.environ.get("ALWAYS_RUN") != "1":
-        print(f"Berlin time is {berlin_now:%H:%M} — not 09:xx, skipping.")
-        return
-
-    today_berlin = berlin_now.date()
+    today_berlin = datetime.now(BERLIN_TZ).date()
     print(f"[{datetime.now(timezone.utc).isoformat()}] "
           f"Checking milestones for {today_berlin}...")
 
