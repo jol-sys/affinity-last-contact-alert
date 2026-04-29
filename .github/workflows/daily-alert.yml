@@ -2,14 +2,11 @@ name: Daily Affinity Last Contact Alert
 
 on:
   schedule:
-    # Scheduled twice daily in UTC to cover both Berlin DST periods:
-    #   07:15 UTC = 09:15 Berlin during CEST (summer)
-    #   08:15 UTC = 09:15 Berlin during CET  (winter)
-    # The script itself exits early when Berlin local time is not 09:xx,
-    # so only one of these actually sends an email on any given day.
-    # :15 (not :00) reduces GitHub Actions cron delay during peak load.
-    - cron: "15 7 * * *"
-    - cron: "15 8 * * *"
+    # Fires once daily at 07:30 UTC.
+    # That is 09:30 Berlin in summer (CEST) and 08:30 Berlin in winter (CET).
+    # The script no longer gates on a specific hour, so DST drift is fine.
+    # :30 (not :00) reduces GitHub Actions cron delay during peak load.
+    - cron: "30 7 * * *"
   workflow_dispatch:      # allows manual run from the GitHub UI
 
 jobs:
